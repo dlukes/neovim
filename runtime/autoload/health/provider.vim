@@ -282,6 +282,8 @@ function! s:disabled_via_loaded_var(provider) abort
   return 0
 endfunction
 
+"----------------------------------------
+
 function! s:check_python(version) abort
   call health#report_start('Python ' . a:version . ' provider (optional)')
 
@@ -313,54 +315,63 @@ function! s:check_python(version) abort
   " No Python executable could `import neovim`, or host_prog_var was used.
   if !empty(pythonx_errors)
     call health#report_error('Python provider error:', pythonx_errors)
-
-  elseif !empty(pyname) && empty(python_exe)
-    if !exists('g:'.host_prog_var)
-      call health#report_info(printf('`g:%s` is not set.  Searching for '
-            \ . '%s in the environment.', host_prog_var, pyname))
-    endif
-
-    if !empty(pyenv)
-      let python_exe = s:trim(s:system([pyenv, 'which', pyname], '', 1))
-
-      if empty(python_exe)
-        call health#report_warn(printf('pyenv could not find %s.', pyname))
-      endif
-    endif
-
-    if empty(python_exe)
-      let python_exe = exepath(pyname)
-
-      if exists('$PATH')
-        for path in split($PATH, has('win32') ? ';' : ':')
-          let path_bin = s:normalize_path(path.'/'.pyname)
-          if path_bin != s:normalize_path(python_exe)
-                \ && index(python_multiple, path_bin) == -1
-                \ && executable(path_bin)
-            call add(python_multiple, path_bin)
-          endif
-        endfor
-
-        if len(python_multiple)
-          " This is worth noting since the user may install something
-          " that changes $PATH, like homebrew.
-          call health#report_info(printf('Multiple %s executables found.  '
-                \ . 'Set `g:%s` to avoid surprises.', pyname, host_prog_var))
-        endif
-
-        if python_exe =~# '\<shims\>'
-          call health#report_warn(printf('`%s` appears to be a pyenv shim.', python_exe), [
-                      \ '`pyenv` is not in $PATH, your pyenv installation is broken. '
-                      \ .'Set `g:'.host_prog_var.'` to avoid surprises.',
-                      \ ])
-        endif
-      endif
-    endif
   endif
+
+  " NOTE: this duplicates work already done while detecting the provider, it's
+  " basically a way to figure out which pyenv python executable the provider
+  " returned. well, the provider might as well return a full path and we can
+  " avoid all of this bullshit.
+  " elseif !empty(pyname) && empty(python_exe)
+  "   if !exists('g:'.host_prog_var)
+  "     call health#report_info(printf('`g:%s` is not set.  Searching for '
+  "           \ . '%s in the environment.', host_prog_var, pyname))
+  "   endif
+
+  "   if !empty(pyenv)
+  "     let python_exe = s:trim(s:system([pyenv, 'which', pyname], '', 1))
+
+  "     if empty(python_exe)
+  "       call health#report_warn(printf('pyenv could not find %s.', pyname))
+  "     endif
+  "   endif
+
+  "   if empty(python_exe)
+  "     let python_exe = exepath(pyname)
+
+  "     if exists('$PATH')
+  "       for path in split($PATH, has('win32') ? ';' : ':')
+  "         let path_bin = s:normalize_path(path.'/'.pyname)
+  "         if path_bin != s:normalize_path(python_exe)
+  "               \ && index(python_multiple, path_bin) == -1
+  "               \ && executable(path_bin)
+  "           call add(python_multiple, path_bin)
+  "         endif
+  "       endfor
+
+  "       if len(python_multiple)
+  "         " This is worth noting since the user may install something
+  "         " that changes $PATH, like homebrew.
+  "         call health#report_info(printf('Multiple %s executables found.  '
+  "               \ . 'Set `g:%s` to avoid surprises.', pyname, host_prog_var))
+  "       endif
+
+  "       if python_exe =~# '\<shims\>'
+  "         call health#report_warn(printf('`%s` appears to be a pyenv shim.', python_exe), [
+  "                     \ '`pyenv` is not in $PATH, your pyenv installation is broken. '
+  "                     \ .'Set `g:'.host_prog_var.'` to avoid surprises.',
+  "                     \ ])
+  "       endif
+  "     endif
+  "   endif
+  " endif
 
   if !empty(python_exe) && !exists('g:'.host_prog_var)
     if empty(venv) && !empty(pyenv)
           \ && !empty(pyenv_root) && resolve(python_exe) !~# '^'.pyenv_root.'/'
+      " NOTE: this advice seems unwarranted -- why create a virtualenv, why
+      " not install directly into the site-packages of this pyenv version?
+      " also, I may happen to have g:host_prog_var set to this pyenv version,
+      " in which case I won't see this warning anyway. so it's useless.
       call health#report_warn('pyenv is not set up optimally.', [
             \ printf('Create a virtualenv specifically '
             \ . 'for Nvim using pyenv, and set `g:%s`.  This will avoid '
@@ -453,6 +464,8 @@ function! s:check_python(version) abort
     endif
   endif
 endfunction
+
+"----------------------------------------
 
 " Check if pyenv is available and a valid pyenv root can be found, then return
 " their respective paths. If either of those is invalid, return two empty
