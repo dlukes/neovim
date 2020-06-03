@@ -291,7 +291,7 @@ function! s:check_python(version) abort
   call health#report_start('Python ' . a:version . ' provider (optional)')
 
   let pyname = 'python'.(a:version == 2 ? '' : '3')
-  let python_exe = ''
+  " let python_exe = ''
   let venv = exists('$VIRTUAL_ENV') ? resolve($VIRTUAL_ENV) : ''
   let host_prog_var = pyname.'_host_prog'
   " NOTE: if we want info about other Pythons, let's get it from the pythonx
@@ -309,20 +309,24 @@ function! s:check_python(version) abort
     call health#report_info(printf('Using: g:%s = "%s"', host_prog_var, get(g:, host_prog_var)))
   endif
 
-  let [pyname, pythonx_errors] = provider#pythonx#Detect(a:version)
+  " let [pyname, pythonx_errors] = provider#pythonx#Detect(a:version)
+  let [python_exe, pythonx_errors] = provider#pythonx#Detect(a:version)
 
-  if empty(pyname)
-    call health#report_warn('No Python executable found that can `import neovim`. '
-            \ . 'Using the first available executable for diagnostics.')
+  if empty(python_exe)
+    " NOTE: that second part is not true (not sure if it ever was, but it
+    " certainly isn't now), there's no place where we just run the first
+    " available Python
+    call health#report_warn('No Python executable found that can `import neovim`.')
+            " \ . 'Using the first available executable for diagnostics.')
     " TODO: figure out what these diagnostics are; if they're necessary, then
     " set python_exe to an appropriate Python 2 or 3 here (possibly reusing a
     " provider function?)
   " elseif exists('g:'.host_prog_var)
-  else
-    let python_exe = pyname
+  "   let python_exe = pyname
   endif
 
-  " No Python executable could `import neovim`, or host_prog_var was used.
+  " No Python executable could `import neovim`, or host_prog_var was used and
+  " led to errors.
   if !empty(pythonx_errors)
     call health#report_error('Python provider error:', pythonx_errors)
   endif
@@ -375,7 +379,7 @@ function! s:check_python(version) abort
   "   endif
   " endif
 
-  if !empty(python_exe) && !exists('g:'.host_prog_var)
+  " if !empty(python_exe) && !exists('g:'.host_prog_var)
     " if empty(venv) && !empty(pyenv)
     "       \ && !empty(pyenv_root) && resolve(python_exe) !~# '^'.pyenv_root.'/'
     "   " NOTE: this advice seems unwarranted -- why create a virtualenv, why
@@ -388,7 +392,7 @@ function! s:check_python(version) abort
     "         \ . 'the need to install the pynvim module in each '
     "         \ . 'version/virtualenv.', host_prog_var)
     "         \ ])
-    if !empty(venv)
+    " if !empty(venv)
       " NOTE: what the actual fuck? when is the pyenv root ever the root of a
       " virtualenv?
       " if !empty(pyenv_root)
@@ -399,15 +403,29 @@ function! s:check_python(version) abort
       "   let venv_root = fnamemodify(venv, ':h')
       " endif
 
-      if resolve(python_exe) !~# '^'.venv.'/'
-        call health#report_warn('Your virtualenv is not set up optimally.', [
-              \ printf('Create a virtualenv specifically '
-              \ . 'for Nvim and use `g:%s`.  This will avoid '
-              \ . 'the need to install the pynvim module in each '
-              \ . 'virtualenv.', host_prog_var)
-              \ ])
-      endif
-    endif
+      " NOTE: This should be =~# instead (cf. below); we want to warn if the
+      " provider was found in the current virtualenv and host_prog wasn't set.
+      " if resolve(python_exe) !~# '^'.venv.'/'
+      "   call health#report_warn('Your virtualenv is not set up optimally.', [
+      "         \ printf('Create a virtualenv specifically '
+      "         \ . 'for Nvim and use `g:%s`.  This will avoid '
+      "         \ . 'the need to install the pynvim module in each '
+      "         \ . 'virtualenv.', host_prog_var)
+      "         \ ])
+      " endif
+    " endif
+  " endif
+
+  " TODO: full condition, can be simplified? (can't match on venv if empty)
+  if !empty(python_exe) && !empty(venv) 
+    \ && resolve(python_exe) !~# '^'.venv.'/'
+    \ && !exists('g:'.host_prog_var)
+    call health#report_warn('Your virtualenv is not set up optimally.', [
+          \ printf('Create a virtualenv specifically '
+          \ . 'for Nvim and use `g:%s`.  This will avoid '
+          \ . 'the need to install the pynvim module in each '
+          \ . 'virtualenv.', host_prog_var)
+          \ ])
   endif
 
   " NOTE: neither of these things can happen if the pythonx provider returns a
@@ -420,16 +438,23 @@ function! s:check_python(version) abort
   " endif
 
   " Diagnostic output
-  call health#report_info('Executable: ' . (empty(python_exe) ? 'Not found' : python_exe))
+  call health#report_info('Python provider executable: ' . (empty(python_exe) ? 'Not found' : python_exe))
   let python_multiple = provider#pythonx#GetPythonCandidates(a:version)
   if len(python_multiple)
     for path_bin in python_multiple
-      call health#report_info('Other python executable: ' . path_bin)
+      if path_bin !=# python_exe
+        call health#report_info('Other Python executable: ' . path_bin)
+      endif
     endfor
   endif
 
-  let pip = 'pip' . (a:version == 2 ? '' : '3')
+  " NOTE: this may invoke the wrong pip, e.g. if we found the appropriate
+  " Python further down the PATH, or if using pyenv with a main Python 3 and a
+  " secondary Python 2, in which case pip will be Python 3's, not Python 2's.
+  " it's safer to just do python -m pip
+  " let pip = 'pip' . (a:version == 2 ? '' : '3')
 
+  let pip_user_hint = 'Retry with the --user flag if you get a permission error.'
   if empty(python_exe)
     " No Python executable can import 'neovim'. Check if any Python executable
     " can import 'pynvim'. If so, that Python failed to import 'neovim' as
@@ -437,13 +462,15 @@ function! s:check_python(version) abort
     " https://github.com/neovim/neovim/wiki/Following-HEAD#20181118
     let [pynvim_exe, errors] = provider#pythonx#DetectByModule('pynvim', a:version)
     if !empty(pynvim_exe)
+      let pip = pynvim_exe . ' -m pip'
       call health#report_error(
             \ 'Detected pip upgrade failure: Python executable can import "pynvim" but '
             \ . 'not "neovim": '. pynvim_exe,
             \ "Use that Python version to reinstall \"pynvim\" and optionally \"neovim\".\n"
             \ . pip ." uninstall pynvim neovim\n"
             \ . pip ." install pynvim\n"
-            \ . pip ." install neovim  # only if needed by third-party software")
+            \ . pip ." install neovim  # only if needed by third-party software\n"
+            \ . pip_user_hint)
     endif
   else
     let [pyversion, current, latest, status] = s:version_info(python_exe)
@@ -453,6 +480,7 @@ function! s:check_python(version) abort
                   \ ' This could lead to confusing error messages.')
     endif
 
+    " TODO: get minimum version from provider instead of hardcoding it?
     if a:version == 3 && str2float(pyversion) < 3.3
       call health#report_warn('Python 3.3+ is recommended.')
     endif
@@ -466,9 +494,10 @@ function! s:check_python(version) abort
     endif
 
     if s:is_bad_response(current)
+      let pip = python_exe . ' -m pip'
       call health#report_error(
         \ "pynvim is not installed.\nError: ".current,
-        \ ['Run in shell: '. pip .' install pynvim'])
+        \ ['Run in shell: '. pip .' install pynvim\n'. pip_user_hint])
     endif
 
     if s:is_bad_response(latest)
@@ -535,10 +564,9 @@ function! s:check_virtualenv() abort
   " The virtualenv should contain some Python executables, and those
   " executables should be first both on Nvim's $PATH and the $PATH of
   " subshells launched from Nvim.
-  let bin_dir = has('win32') ? '/Scripts' : '/bin'
-  let venv_bins = glob($VIRTUAL_ENV . bin_dir . '/python*', v:true, v:true)
-  " XXX: Remove irrelevant executables found in bin/.
-  let venv_bins = filter(venv_bins, 'v:val !~# "python-config"')
+  let bin_dir = has('win32') ? 'Scripts' : 'bin'
+  let bin_dir_abspath_quoted = substitute($VIRTUAL_ENV.'/'.bin_dir, ',', '\\,', 'g')
+  let venv_bins = provider#pythonx#GetPythonCandidates('.', bin_dir_abspath_quoted)
   if len(venv_bins)
     for venv_bin in venv_bins
       let venv_bin = s:normalize_path(venv_bin)

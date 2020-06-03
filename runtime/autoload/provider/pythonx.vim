@@ -35,8 +35,8 @@ endfunction
 function! s:to_comma_separated_path(path) abort
   if has('win32')
     let path_sep = ';'
-    " remove backslashes, they would turn into \, and escape the ,
-    " which globpath() expects as path separator
+    " remove backslashes at the end of path items, they would turn into \, and
+    " escape the , which globpath() expects as path separator
     let path = substitute(a:path, '\\\+;', ';', 'g')
   else
     let path_sep = ':'
@@ -46,7 +46,18 @@ function! s:to_comma_separated_path(path) abort
   " escape existing commas, so that they remain part of the individual paths
   let path = substitute(path, ',', '\\,', 'g')
 
-  return substitute(path, path_sep, ',', 'g')
+  " deduplicate path items, otherwise globpath() returns even more duplicate
+  " matches for some reason
+  let already_seen = {}
+  let path_list = []
+  for item in split(path, path_sep)
+    if !has_key(already_seen, item)
+      let already_seen[item] = v:true
+      call add(path_list, item)
+    endif
+  endfor
+
+  return join(path_list, ',')
 endfunction
 
 " A list of hardcoded versions is useless, min_versions are already specified
@@ -55,11 +66,20 @@ endfunction
 " executables on PATH instead. Also, promote this to a public function, so
 " that the health checks can use it to retrieve info about all potential
 " Python executables available for a given version.
-function! provider#pythonx#GetPythonCandidates(major_version) abort
-  " NOTE: first try using getcompletion
-  " let starts_with_python = getcompletion('python', 'shellcmd')
-  let starts_with_python = globpath(s:to_comma_separated_path($PATH), 'python*', v:true, v:true)
-  let matches_version = printf('v:val =~# "\\v[\\/]python(%d)?(\.[0-9]+)?$"', a:major_version)
+"
+" Returns a list of all Python executables found in path.
+"
+" Takes two optional arguments: a Python major version, and a path as a
+" comma-separated string of directories.
+"
+" If the major version is given, only executables for that version will be
+" returned. If no path is given, a deduplicated $PATH will by used by default.
+function! provider#pythonx#GetPythonCandidates(...) abort
+  let major_version = get(a:, 1, '.')
+  let path = get(a:, 2, s:to_comma_separated_path($PATH))
+  let starts_with_python = globpath(path, 'python*', v:true, v:true)
+  let ext_pat = has('win32') ? '(\\.exe)?' : ''
+  let matches_version = printf('v:val =~# "\\v[\\/]python(%s)?(\\.[0-9]+)?%s$"', major_version, ext_pat)
   return filter(starts_with_python, matches_version)
 endfunction
 
@@ -139,9 +159,15 @@ function! provider#pythonx#CheckForModule(prog, module, major_version) abort
   if prog_exitcode == 2
     return [0, prog_path.' does not have the "' . a:module . '" module. :help provider-python']
   elseif prog_exitcode == 127
+    " NOTE: I wouldn't treat this specially, I don't think it's Neovim's job
+    " to try and help users with pyenv. Just show the command we ran, the exit
+    " code and the output we got, and let them figure it out.
     " This can happen with pyenv's shims.
-    return [0, prog_path . ' does not exist: ' . prog_version]
+    return [0, prog_path . ' is probably a dangling pyenv shim: ' . prog_version]
   elseif prog_exitcode
+    " NOTE: Why report? An "unknown error" can happen e.g. if there's an
+    " executable named python on the PATH which is not actually Python. That's
+    " the user's problem, not Neovim's.
     return [0, 'Checking ' . prog_path . ' caused an unknown error. '
           \ . '(' . prog_exitcode . ', output: ' . prog_version . ')'
           \ . ' Report this at https://github.com/neovim/neovim']
