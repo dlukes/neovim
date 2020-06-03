@@ -254,17 +254,20 @@ function! s:version_info(python) abort
   return [python_version, nvim_version, pypi_version, version_status]
 endfunction
 
+" NOTE: not needed, called in one place which is made obsolete by removing all
+" the redundant checks and relying on pythonx provider to give us a full path
+" to a working Python.
 " Check the Python interpreter's usability.
-function! s:check_bin(bin) abort
-  if !filereadable(a:bin) && (!has('win32') || !filereadable(a:bin.'.exe'))
-    call health#report_error(printf('"%s" was not found.', a:bin))
-    return 0
-  elseif executable(a:bin) != 1
-    call health#report_error(printf('"%s" is not executable.', a:bin))
-    return 0
-  endif
-  return 1
-endfunction
+" function! s:check_bin(bin) abort
+"   if !filereadable(a:bin) && (!has('win32') || !filereadable(a:bin.'.exe'))
+"     call health#report_error(printf('"%s" was not found.', a:bin))
+"     return 0
+"   elseif executable(a:bin) != 1
+"     call health#report_error(printf('"%s" is not executable.', a:bin))
+"     return 0
+"   endif
+"   return 1
+" endfunction
 
 " Check "loaded" var for given a:provider.
 " Returns 1 if the caller should return (skip checks).
@@ -291,7 +294,10 @@ function! s:check_python(version) abort
   let python_exe = ''
   let venv = exists('$VIRTUAL_ENV') ? resolve($VIRTUAL_ENV) : ''
   let host_prog_var = pyname.'_host_prog'
-  let python_multiple = []
+  " NOTE: if we want info about other Pythons, let's get it from the pythonx
+  " provider instead of rolling our own weird spaghetti code which duplicates
+  " functionality and introduces bugs below
+  " let python_multiple = []
 
   if s:disabled_via_loaded_var(pyname)
     return
@@ -308,7 +314,11 @@ function! s:check_python(version) abort
   if empty(pyname)
     call health#report_warn('No Python executable found that can `import neovim`. '
             \ . 'Using the first available executable for diagnostics.')
-  elseif exists('g:'.host_prog_var)
+    " TODO: figure out what these diagnostics are; if they're necessary, then
+    " set python_exe to an appropriate Python 2 or 3 here (possibly reusing a
+    " provider function?)
+  " elseif exists('g:'.host_prog_var)
+  else
     let python_exe = pyname
   endif
 
@@ -366,26 +376,30 @@ function! s:check_python(version) abort
   " endif
 
   if !empty(python_exe) && !exists('g:'.host_prog_var)
-    if empty(venv) && !empty(pyenv)
-          \ && !empty(pyenv_root) && resolve(python_exe) !~# '^'.pyenv_root.'/'
-      " NOTE: this advice seems unwarranted -- why create a virtualenv, why
-      " not install directly into the site-packages of this pyenv version?
-      " also, I may happen to have g:host_prog_var set to this pyenv version,
-      " in which case I won't see this warning anyway. so it's useless.
-      call health#report_warn('pyenv is not set up optimally.', [
-            \ printf('Create a virtualenv specifically '
-            \ . 'for Nvim using pyenv, and set `g:%s`.  This will avoid '
-            \ . 'the need to install the pynvim module in each '
-            \ . 'version/virtualenv.', host_prog_var)
-            \ ])
-    elseif !empty(venv)
-      if !empty(pyenv_root)
-        let venv_root = pyenv_root
-      else
-        let venv_root = fnamemodify(venv, ':h')
-      endif
+    " if empty(venv) && !empty(pyenv)
+    "       \ && !empty(pyenv_root) && resolve(python_exe) !~# '^'.pyenv_root.'/'
+    "   " NOTE: this advice seems unwarranted -- why create a virtualenv, why
+    "   " not install directly into the site-packages of this pyenv version?
+    "   " also, I may happen to have g:host_prog_var set to this pyenv version,
+    "   " in which case I won't see this warning anyway. so it's useless.
+    "   call health#report_warn('pyenv is not set up optimally.', [
+    "         \ printf('Create a virtualenv specifically '
+    "         \ . 'for Nvim using pyenv, and set `g:%s`.  This will avoid '
+    "         \ . 'the need to install the pynvim module in each '
+    "         \ . 'version/virtualenv.', host_prog_var)
+    "         \ ])
+    if !empty(venv)
+      " NOTE: what the actual fuck? when is the pyenv root ever the root of a
+      " virtualenv?
+      " if !empty(pyenv_root)
+      "   let venv_root = pyenv_root
+      " else
+      "   " NOTE: how is this the venv_root??? this is the *parent* of the venv
+      "   " root
+      "   let venv_root = fnamemodify(venv, ':h')
+      " endif
 
-      if resolve(python_exe) !~# '^'.venv_root.'/'
+      if resolve(python_exe) !~# '^'.venv.'/'
         call health#report_warn('Your virtualenv is not set up optimally.', [
               \ printf('Create a virtualenv specifically '
               \ . 'for Nvim and use `g:%s`.  This will avoid '
@@ -396,15 +410,18 @@ function! s:check_python(version) abort
     endif
   endif
 
-  if empty(python_exe) && !empty(pyname)
-    " An error message should have already printed.
-    call health#report_error(printf('`%s` was not found.', pyname))
-  elseif !empty(python_exe) && !s:check_bin(python_exe)
-    let python_exe = ''
-  endif
+  " NOTE: neither of these things can happen if the pythonx provider returns a
+  " full path to a valid Python
+  " if empty(python_exe) && !empty(pyname)
+  "   " An error message should have already printed.
+  "   call health#report_error(printf('`%s` was not found.', pyname))
+  " elseif !empty(python_exe) && !s:check_bin(python_exe)
+  "   let python_exe = ''
+  " endif
 
   " Diagnostic output
   call health#report_info('Executable: ' . (empty(python_exe) ? 'Not found' : python_exe))
+  let python_multiple = provider#pythonx#GetPythonCandidates(a:version)
   if len(python_multiple)
     for path_bin in python_multiple
       call health#report_info('Other python executable: ' . path_bin)

@@ -49,19 +49,18 @@ function! s:to_comma_separated_path(path) abort
   return substitute(path, path_sep, ',', 'g')
 endfunction
 
-" This is useless, min_versions are already specified below, this only amounts
-" to maintainer burden as it needs to be updated each time a new Python
-" version is released.
-" TODO: return all appropriate python* executables on PATH instead
-function! s:get_python_candidates(major_version) abort
+" A list of hardcoded versions is useless, min_versions are already specified
+" below, this only amounts to maintainer burden as it needs to be updated each
+" time a new Python version is released. Return all appropriate python*
+" executables on PATH instead. Also, promote this to a public function, so
+" that the health checks can use it to retrieve info about all potential
+" Python executables available for a given version.
+function! provider#pythonx#GetPythonCandidates(major_version) abort
+  " NOTE: first try using getcompletion
   " let starts_with_python = getcompletion('python', 'shellcmd')
   let starts_with_python = globpath(s:to_comma_separated_path($PATH), 'python*', v:true, v:true)
   let matches_version = printf('v:val =~# "\\v[\\/]python(%d)?(\.[0-9]+)?$"', a:major_version)
   return filter(starts_with_python, matches_version)
-endfunction
-
-function! provider#pythonx#get_python_candidates(major_version) abort
-  return s:get_python_candidates(a:major_version)
 endfunction
 
 " Returns [path_to_python_executable, error_message]
@@ -77,10 +76,9 @@ function! provider#pythonx#DetectByModule(module, major_version) abort
     return [exepath(expand(python_exe)), '']
   endif
 
-  let candidates = s:get_python_candidates(a:major_version)
+  let candidates = provider#pythonx#GetPythonCandidates(a:major_version)
   let errors = []
 
-  " TODO: only makes sense once s:get_python_candidates is changed
   if empty(candidates)
     call add(errors, 'No candidates for a Python '.a:major_version.' executable found on $PATH.')
   endif
