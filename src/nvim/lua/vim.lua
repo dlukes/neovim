@@ -514,7 +514,7 @@ function vim.parse_version(ver, strict)
     cursor = end_build + 1
   end
 
-  if cursor >= string.len(ver) then
+  if cursor >= #ver then
     local major, minor, patch = unpack(numbers)
     return {major=major, minor=minor, patch=patch, pre=pre, build=build}
   else
@@ -540,8 +540,8 @@ function vim.cmp_versions(ver1, ver2, strict)
     -- indices
     keys = #ver1 > #ver2 and ver1 or ver2
   end
-  for i, name in ipairs(keys) do
-    local key = strict and name or i
+  for num_key, str_key in ipairs(keys) do
+    local key = strict and str_key or num_key
     local val1 = ver1[key] or 0
     local val2 = ver2[key] or 0
     if val1 > val2 then
