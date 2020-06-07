@@ -1337,6 +1337,10 @@ describe('lua stdlib', function()
         eq(1, funcs.luaeval('vim.cmp_versions("1-alpha2", "1-alpha10", true)'))
       end)
 
+      it('should work when both pre-release labels are empty', function()
+        eq(0, funcs.luaeval('vim.cmp_versions("1", "1", true)'))
+      end)
+
       it('should give precedence to versions without pre-release labels', function()
         eq(1, funcs.luaeval('vim.cmp_versions("1", "1-alpha", true)'))
         eq(-1, funcs.luaeval('vim.cmp_versions("1-alpha", "1", true)'))
