@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <stdbool.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "nvim/vim.h"
 #include "nvim/ascii.h"
@@ -127,6 +128,7 @@ struct qf_info_S {
 
 static qf_info_T ql_info;         // global quickfix list
 static unsigned last_qf_id = 0;   // Last Used quickfix list id
+pthread_mutex_t qf_lock = PTHREAD_MUTEX_INITIALIZER;   // global lock
 
 #define FMT_PATTERNS 11           // maximum number of % recognized
 
@@ -2928,6 +2930,8 @@ static int qf_jump_to_buffer(qf_info_T *qi, int qf_index, qfline_T *qf_ptr,
 /// else go to entry "errornr"
 void qf_jump(qf_info_T *qi, int dir, int errornr, int forceit)
 {
+  pthread_mutex_lock(&qf_lock);
+
   qf_list_T *qfl;
   qfline_T *qf_ptr;
   qfline_T *old_qf_ptr;
@@ -2946,6 +2950,7 @@ void qf_jump(qf_info_T *qi, int dir, int errornr, int forceit)
 
   if (qf_stack_empty(qi) || qf_list_empty(qf_get_curlist(qi))) {
     EMSG(_(e_quickfix));
+    pthread_mutex_unlock(&qf_lock);
     return;
   }
 
@@ -3012,6 +3017,8 @@ theend:
     } else
       free_string_option(old_swb);
   }
+
+  pthread_mutex_unlock(&qf_lock);
 }
 
 
@@ -5905,6 +5912,11 @@ static int qf_add_entry_from_dict(
 static int qf_add_entries(qf_info_T *qi, int qf_idx, list_T *list,
                           char_u *title, int action)
 {
+  pthread_mutex_lock(&qf_lock);
+  /* if (pthread_mutex_trylock(&qf_lock) != 0) { */
+  /*   return FAIL; */
+  /* } */
+
   qf_list_T *qfl = qf_get_list(qi, qf_idx);
   qfline_T *old_last = NULL;
   int retval = OK;
@@ -5962,6 +5974,7 @@ static int qf_add_entries(qf_info_T *qi, int qf_idx, list_T *list,
   // Don't update the cursor in quickfix window when appending entries
   qf_update_buffer(qi, old_last);
 
+  pthread_mutex_unlock(&qf_lock);
   return retval;
 }
 
@@ -6114,12 +6127,18 @@ static int qf_set_properties(qf_info_T *qi, const dict_T *what, int action,
                              char_u *title)
   FUNC_ATTR_NONNULL_ALL
 {
+  pthread_mutex_lock(&qf_lock);
+  /* if (pthread_mutex_trylock(&qf_lock) != 0) { */
+  /*   return FAIL; */
+  /* } */
+
   qf_list_T *qfl;
   dictitem_T *di;
   int  retval = FAIL;
   bool newlist = action == ' ' || qf_stack_empty(qi);
   int qf_idx = qf_setprop_get_qfidx(qi, what, action, &newlist);
   if (qf_idx == INVALID_QFIDX) {  // List not found
+    pthread_mutex_unlock(&qf_lock);
     return FAIL;
   }
 
@@ -6147,6 +6166,7 @@ static int qf_set_properties(qf_info_T *qi, const dict_T *what, int action,
     qf_list_changed(qfl);
   }
 
+  pthread_mutex_unlock(&qf_lock);
   return retval;
 }
 
@@ -6214,6 +6234,12 @@ static void qf_free_stack(win_T *wp, qf_info_T *qi)
 int set_errorlist(win_T *wp, list_T *list, int action, char_u *title,
                   dict_T *what)
 {
+  /* MSG("acquiring lock in set_errorlist"); */
+  if (pthread_mutex_trylock(&qf_lock) != 0) {
+    return FAIL;
+  }
+  /* MSG("acquired lock in set_errorlist"); */
+
   qf_info_T *qi = &ql_info;
   int retval = OK;
 
@@ -6224,6 +6250,7 @@ int set_errorlist(win_T *wp, list_T *list, int action, char_u *title,
   if (action == 'f') {
     // Free the entire quickfix or location list stack
     qf_free_stack(wp, qi);
+    pthread_mutex_unlock(&qf_lock);
     return OK;
   }
 
@@ -6240,6 +6267,7 @@ int set_errorlist(win_T *wp, list_T *list, int action, char_u *title,
 
   decr_quickfix_busy();
 
+  pthread_mutex_unlock(&qf_lock);
   return retval;
 }
 

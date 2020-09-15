@@ -3,6 +3,7 @@
 
 #include <float.h>
 #include <math.h>
+#include <pthread.h>
 
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/vim.h"
@@ -8224,6 +8225,13 @@ skip_args:
  */
 static void f_setloclist(typval_T *argvars, typval_T *rettv, FunPtr fptr)
 {
+  /* MSG("trying to acquire lock in f_setloclist"); */
+  /* if (pthread_mutex_trylock(&qf_lock) != 0) { */
+  /*   MSG("couldn't acquire lock in f_setloclist"); */
+  /*   return; */
+  /* } */
+  /* MSG("acquired lock in f_setloclist"); */
+
   win_T       *win;
 
   rettv->vval.v_number = -1;
@@ -8232,6 +8240,8 @@ static void f_setloclist(typval_T *argvars, typval_T *rettv, FunPtr fptr)
   if (win != NULL) {
     set_qf_ll_list(win, &argvars[1], rettv);
   }
+
+  /* pthread_mutex_unlock(&qf_lock); */
 }
 
 /*

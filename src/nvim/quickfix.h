@@ -1,6 +1,8 @@
 #ifndef NVIM_QUICKFIX_H
 #define NVIM_QUICKFIX_H
 
+#include <pthread.h>
+
 #include "nvim/types.h"
 #include "nvim/ex_cmds_defs.h"
 
@@ -12,3 +14,5 @@
 # include "quickfix.h.generated.h"
 #endif
 #endif  // NVIM_QUICKFIX_H
+
+extern pthread_mutex_t qf_lock;
